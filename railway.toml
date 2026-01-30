@@ -1,0 +1,6 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "images/bench/Dockerfile"
+
+[deploy]
+startCommand = "docker compose -f docker-compose.railway.yml up"

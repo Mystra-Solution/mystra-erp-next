@@ -33,16 +33,23 @@ services:
       - redis-cache
       - redis-queue
       - redis-socketio
-    command: bench start
+    command: >
+      bash -c "
+      if [ ! -d sites/${FRAPPE_SITE_NAME} ]; then
+        bench new-site ${FRAPPE_SITE_NAME} --admin-password ${FRAPPE_ADMIN_PASSWORD} --mariadb-root-password ${MYSQL_ROOT_PASSWORD} --no-mariadb-socket;
+        bench --site ${FRAPPE_SITE_NAME} install-app erpnext;
+      fi;
+      bench start
+      "
     restart: always
-    # No ports exposed — Nginx will handle public access
+    # Backend runs internal only
 
   nginx:
     image: frappe/erpnext-nginx:version-15
     depends_on:
       - backend
     ports:
-      - "80:80"   # Railway web service port
+      - "80:80"   # Railway public port
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/"]
