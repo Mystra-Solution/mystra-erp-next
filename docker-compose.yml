@@ -8,45 +8,36 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    ports:
-      - "3306:3306"
     volumes:
       - mariadb_data:/var/lib/mysql
 
   redis-cache:
     image: redis:alpine
-    ports:
-      - "6379:6379"
 
   redis-queue:
     image: redis:alpine
-    ports:
-      - "6380:6379"
 
   redis-socketio:
     image: redis:alpine
-    ports:
-      - "6381:6379"
 
   backend:
     build: ./images/bench
+    env_file:
+      - .env
     depends_on:
       - mariadb
       - redis-cache
       - redis-queue
       - redis-socketio
-    env_file:
-      - .env
     command: bench start
-    ports:
-      - "8000:8000"
+    # No port exposed for backend; Nginx will proxy requests internally
 
   nginx:
-    image: frappe/erpnext-nginx:version-14
+    image: frappe/erpnext-nginx:version-15
     depends_on:
       - backend
     ports:
-      - "8080:80"
+      - "80:80"   # Expose to Railway as the web service
 
 volumes:
   mariadb_data:
