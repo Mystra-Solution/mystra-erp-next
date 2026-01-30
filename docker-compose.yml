@@ -3,6 +3,7 @@ version: '3.7'
 services:
   mariadb:
     image: mariadb:10.6
+    restart: always
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -13,12 +14,15 @@ services:
 
   redis-cache:
     image: redis:alpine
+    restart: always
 
   redis-queue:
     image: redis:alpine
+    restart: always
 
   redis-socketio:
     image: redis:alpine
+    restart: always
 
   backend:
     build: ./images/bench
@@ -30,14 +34,21 @@ services:
       - redis-queue
       - redis-socketio
     command: bench start
-    # No port exposed for backend; Nginx will proxy requests internally
+    restart: always
+    # No ports exposed — Nginx will handle public access
 
   nginx:
     image: frappe/erpnext-nginx:version-15
     depends_on:
       - backend
     ports:
-      - "80:80"   # Expose to Railway as the web service
+      - "80:80"   # Railway web service port
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
 volumes:
   mariadb_data:
