@@ -102,11 +102,11 @@ For this setup, make sure **at least** the following values are added to `custom
 ```txt
 CUSTOM_IMAGE=custom
 CUSTOM_TAG=15
-PULL_POLICY=missing
+PULL_POLICY=never
 ```
 
 > The `CUSTOM_*` variables ensure the image reference points to the recently built image.
-> `PULL_POLICY` ensures Docker does not attempt to pull the image, but instead uses the locally built one (the default pull policy is `always`).
+> `PULL_POLICY=never` ensures Docker Compose never attempts to pull the image and only uses the locally built one (the default pull policy is `always`; `missing` can still trigger pull attempts on some setups).
 
 **⚠️ This is not meant to be a complete `.env` configuration guide. These are only the minimal additions required for this example.
 Please have a look at [env-variables.md](04-env-variables.md) for a full description of all available variables and adjust them according to your needs.**

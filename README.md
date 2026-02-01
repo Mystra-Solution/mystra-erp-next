@@ -38,6 +38,8 @@ frappe_docker/
 
 **New to Frappe Docker?** Read the [Getting Started Guide](docs/getting-started.md) for a comprehensive overview of repository structure, development workflow, custom apps, Docker concepts, and quick start examples.
 
+For a **single-file walkthrough** with all steps and commands to build a custom image and run the stack locally, see **[SETUP.md](SETUP.md)**.
+
 If you are already familiar with Frappe, you can jump right into the [different deployment methods](docs/01-getting-started/01-choosing-a-deployment-method.md) and select the one best suited to your use case.
 
 ## Prerequisites
