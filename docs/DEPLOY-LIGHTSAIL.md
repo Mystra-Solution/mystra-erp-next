@@ -357,6 +357,59 @@ sudo systemctl reload caddy
 
 ---
 
+## Access two (or more) tenants by static IP (different ports)
+
+To access the **first tenant** and **tenant2** (or more) on the same static IP, use **different ports** (e.g. 8080 and 8081). Each port is served by a separate frontend container with its own `FRAPPE_SITE_NAME_HEADER`.
+
+**1. Add the multi-tenant override when generating compose**
+
+In `custom.env` set the second tenant’s site name (and optional port):
+
+```bash
+TENANT2_SITE_NAME=tenant2.kynolabs.dev
+# TENANT2_HTTP_PORT=8081   # optional; default 8081
+```
+
+Regenerate the compose file **including** the multi-tenant override:
+
+```bash
+cd ~/frappe_docker
+docker compose --env-file custom.env \
+  -f compose.yaml \
+  -f overrides/compose.mariadb.yaml \
+  -f overrides/compose.redis.yaml \
+  -f overrides/compose.noproxy.yaml \
+  -f overrides/compose.multi-tenant-ports.yaml \
+  config > compose.custom.yaml
+```
+
+**2. Open port 8081 on Lightsail**
+
+In the Lightsail instance **Networking** tab, add a firewall rule: **TCP 8081**.
+
+CLI:
+
+```bash
+aws lightsail open-instance-public-ports \
+  --instance-name erpnext \
+  --port-info fromPort=22,toPort=22,protocol=TCP fromPort=80,toPort=80,protocol=TCP fromPort=443,toPort=443,protocol=TCP fromPort=8080,toPort=8080,protocol=TCP fromPort=8081,toPort=8081,protocol=TCP
+```
+
+**3. Start (or recreate) the stack**
+
+```bash
+docker compose -p frappe -f compose.custom.yaml up -d
+```
+
+**4. Access by static IP**
+
+- **First tenant (erp.kynolabs.dev):** `http://<STATIC_IP>:8080`
+- **Second tenant (tenant2.kynolabs.dev):** `http://<STATIC_IP>:8081`
+
+No DNS or domain is required; both use the same static IP. Ensure the site for each tenant exists (e.g. `bench new-site erp.kynolabs.dev ...` and `bench new-site tenant2.kynolabs.dev ...`, or use `scripts/create-tenant.sh` for the second).
+
+---
+
 ## Automated script
 
 Use **`scripts/lightsail-deploy.sh`** to create Lightsail resources and deploy in one go, or run only the on-instance steps.

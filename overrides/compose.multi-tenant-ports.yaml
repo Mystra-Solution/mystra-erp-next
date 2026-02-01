@@ -1,0 +1,33 @@
+# Second frontend for tenant2 (or more tenants) on a different port.
+# Use with: docker compose -f compose.yaml -f overrides/compose.mariadb.yaml -f overrides/compose.redis.yaml -f overrides/compose.noproxy.yaml -f overrides/compose.multi-tenant-ports.yaml ...
+# Access: http://<static-ip>:8080 = first tenant, http://<static-ip>:8081 = second tenant.
+# Set TENANT2_SITE_NAME (and optionally TENANT2_HTTP_PORT) in custom.env.
+services:
+  frontend-tenant2:
+    image: ${CUSTOM_IMAGE:-frappe/erpnext}:${CUSTOM_TAG:-latest}
+    pull_policy: ${PULL_POLICY:-always}
+    restart: unless-stopped
+    command:
+      - nginx-entrypoint.sh
+    depends_on:
+      backend:
+        condition: service_started
+        required: true
+      websocket:
+        condition: service_started
+        required: true
+    environment:
+      BACKEND: backend:8000
+      CLIENT_MAX_BODY_SIZE: 50m
+      FRAPPE_SITE_NAME_HEADER: ${TENANT2_SITE_NAME:-tenant2.kynolabs.dev}
+      PROXY_READ_TIMEOUT: "120"
+      SOCKETIO: websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+    networks:
+      default: null
+    ports:
+      - "${TENANT2_HTTP_PORT:-8081}:8080"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites

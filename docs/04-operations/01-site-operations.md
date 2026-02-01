@@ -41,7 +41,9 @@ docker compose -p frappe -f compose.custom.yaml exec backend bench new-site tena
 docker compose -p frappe -f compose.custom.yaml exec backend bench --site tenant2.example.com install-app erpnext
 ```
 
-To serve the new tenant by domain, use a frontend that routes by host (e.g. set `FRAPPE_SITE_NAME_HEADER` per frontend or use [multi-tenancy](03-production/03-multi-tenancy.md) with one frontend per site/port).
+To serve the new tenant **by static IP** (same server, no domain): use a **second frontend on a different port** (e.g. 8081). See [overrides/compose.multi-tenant-ports.yaml](../../overrides/compose.multi-tenant-ports.yaml) and the [Lightsail doc section “Access two (or more) tenants by static IP”](../DEPLOY-LIGHTSAIL.md#access-two-or-more-tenants-by-static-ip-different-ports): add the override when generating compose, set `TENANT2_SITE_NAME`, open port 8081, then access `http://<IP>:8080` and `http://<IP>:8081`.
+
+To serve by domain, use a frontend that routes by host (e.g. set `FRAPPE_SITE_NAME_HEADER` per frontend or use [multi-tenancy](03-production/03-multi-tenancy.md) with one frontend per site/port).
 
 ---
 
