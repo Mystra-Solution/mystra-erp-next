@@ -1,6 +1,19 @@
+# Railway runs ONE container per service. Docker is NOT available inside that container.
+# Do NOT use "docker compose" as startCommand — it will fail with "docker could not be found".
+#
+# Option 1: Deploy the layered app image (recommended)
+# - Build image from images/layered/Containerfile (e.g. in CI or locally, push to a registry).
+# - Create separate Railway services: backend (gunicorn), frontend (nginx), workers, scheduler, websocket.
+# - Use Railway PostgreSQL or external MariaDB, and Railway Redis or external Redis.
+# - Set start command per service (e.g. backend: default CMD from Containerfile; frontend: nginx-entrypoint.sh).
+#
+# Option 2: Bench image (dev/CLI only)
+# - Use this only if you need a one-off bench shell. No startCommand that runs Docker.
+
 [build]
 builder = "dockerfile"
 dockerfilePath = "images/bench/Dockerfile"
 
 [deploy]
-startCommand = "docker compose -f docker-compose.railway.yml up"
+# Placeholder so container stays up (bench image has no built-in server). See comments above for proper Railway deploy.
+startCommand = "tail -f /dev/null"

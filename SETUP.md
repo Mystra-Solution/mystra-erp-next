@@ -278,8 +278,10 @@ Expected: JSON with a `"data"` array (may be empty if no records).
 
 ## Reference
 
+- **Deploy on AWS Lightsail:** [docs/DEPLOY-LIGHTSAIL.md](docs/DEPLOY-LIGHTSAIL.md) (steps + `scripts/lightsail-deploy.sh`)
 - **API reference (inventory, purchase, GRN):** [docs/API-REFERENCE.md](docs/API-REFERENCE.md)
 - **Env variables:** `docs/02-setup/04-env-variables.md`
 - **Build setup:** `docs/02-setup/02-build-setup.md`
 - **Start / site setup:** `docs/02-setup/03-start-setup.md`
 - **Site operations:** `docs/04-operations/01-site-operations.md`
+- **Create new tenant:** `scripts/create-tenant.sh` (new site + DB on same MariaDB, same Redis) — see [site operations](docs/04-operations/01-site-operations.md#create-new-tenant-multi-tenancy)

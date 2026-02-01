@@ -15,6 +15,36 @@ docker-compose exec backend bench new-site --mariadb-user-host-login-scope=% --d
 
 If you need to install some app, specify `--install-app`. To see all options, just run `bench new-site --help`.
 
+## Create new tenant (multi-tenancy)
+
+For a new tenant you create a **new bench site** (and thus a **new MariaDB database** on the same MariaDB server). **Redis is shared** across all tenants — you do not create a new Redis.
+
+- **MariaDB:** Same server; `bench new-site` creates a new database for this tenant.
+- **Redis:** Same redis-cache and redis-queue for all sites.
+- **Bench:** One bench; multiple sites (one site = one tenant).
+
+Use the script from the repo root (with Docker Compose):
+
+```sh
+export DB_PASSWORD='your-db-root-password'
+./scripts/create-tenant.sh tenant2.example.com 'AdminPasswordForTenant2'
+```
+
+Or run the commands manually:
+
+```sh
+docker compose -p frappe -f compose.custom.yaml exec backend bench new-site tenant2.example.com \
+  --mariadb-user-host-login-scope='172.%.%.%' \
+  --db-root-password <db-password> \
+  --admin-password <admin-password>
+
+docker compose -p frappe -f compose.custom.yaml exec backend bench --site tenant2.example.com install-app erpnext
+```
+
+To serve the new tenant by domain, use a frontend that routes by host (e.g. set `FRAPPE_SITE_NAME_HEADER` per frontend or use [multi-tenancy](03-production/03-multi-tenancy.md) with one frontend per site/port).
+
+---
+
 To create Postgres site (assuming you already use [Postgres compose override](../02-setup/05-overrides.md)) you need have to do set `root_login` and `root_password` in common config before that:
 
 ```sh
