@@ -28,3 +28,4 @@ services:
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - ./scripts/admin_api.py:/home/frappe/frappe-bench/admin_api.py:ro
+      - ./scripts/create-tenant.sh:/home/frappe/frappe-bench/create-tenant.sh:ro

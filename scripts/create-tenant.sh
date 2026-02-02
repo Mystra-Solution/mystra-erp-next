@@ -15,7 +15,9 @@
 #   ./scripts/create-tenant.sh tenant2.example.com 'AdminPass123!'
 #
 # Or with explicit args:
-#   ./scripts/create-tenant.sh <site_name> <admin_password> [db_root_password]
+#   ./scripts/create-tenant.sh <site_name> <admin_password> [db_root_password] [--json]
+#
+#   --json   Output credentials as JSON to stdout (for Admin API)
 #
 # Usage (inside backend container):
 #   ./scripts/create-tenant.sh tenant2.example.com 'AdminPass123!'
@@ -23,19 +25,36 @@
 #
 set -euo pipefail
 
-SITE_NAME="${1:-}"
-ADMIN_PASSWORD="${2:-}"
-DB_PASSWORD="${3:-${DB_PASSWORD:-}}"
+SITE_NAME=""
+ADMIN_PASSWORD=""
+DB_PASSWORD_ARG=""
+JSON_OUTPUT=""
+ENV_DB_PASSWORD="${DB_PASSWORD:-}"
+
+# Parse args: site_name, admin_password, [db_root_password], [--json]
+for arg in "$@"; do
+  if [[ "$arg" == "--json" ]]; then
+    JSON_OUTPUT="1"
+  elif [[ -z "$SITE_NAME" ]]; then
+    SITE_NAME="$arg"
+  elif [[ -n "$SITE_NAME" && -z "$ADMIN_PASSWORD" ]]; then
+    ADMIN_PASSWORD="$arg"
+  elif [[ -n "$ADMIN_PASSWORD" && -z "$DB_PASSWORD_ARG" && "$arg" != --* ]]; then
+    DB_PASSWORD_ARG="$arg"
+  fi
+done
+DB_PASSWORD="${DB_PASSWORD_ARG:-$ENV_DB_PASSWORD}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-frappe}"
 COMPOSE_FILE="${COMPOSE_FILE:-compose.custom.yaml}"
 COMPOSE_CMD="${COMPOSE_CMD:-docker compose -p $COMPOSE_PROJECT_NAME -f $COMPOSE_FILE}"
 
 usage() {
-  echo "Usage: $0 <site_name> <admin_password> [db_root_password]"
+  echo "Usage: $0 <site_name> <admin_password> [db_root_password] [--json]"
   echo ""
   echo "  site_name       Tenant site name (e.g. tenant2.example.com or tenant2.kynolabs.dev)"
   echo "  admin_password  Administrator login password (also used as default password)"
   echo "  db_root_password Optional. MariaDB root password (default: \$DB_PASSWORD)"
+  echo "  --json          Output credentials as JSON (for Admin API)"
   echo ""
   echo "Creates: new bench site + new MariaDB database for this tenant. Redis is shared."
   echo "Returns: credentials (login + API key/secret) for the tenant."
@@ -92,25 +111,35 @@ else
   API_SECRET=$(echo "$API_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('api_secret',''))" 2>/dev/null || echo "")
 fi
 
-echo ""
-echo "=============================================="
-echo "Tenant created: $SITE_NAME"
-echo "=============================================="
-echo ""
-echo "Login credentials (web UI):"
-echo "  Username: Administrator"
-echo "  Password: $ADMIN_PASSWORD"
-echo ""
-if [[ -n "$API_KEY" && -n "$API_SECRET" ]]; then
-  echo "API credentials (for REST API calls):"
-  echo "  API Key:    $API_KEY"
-  echo "  API Secret: $API_SECRET"
-  echo "  Token (use in Authorization header): token $API_KEY:$API_SECRET"
-  echo ""
-  echo "  Example: curl -H \"Authorization: token $API_KEY:$API_SECRET\" http://<host>:<port>/api/method/frappe.auth.get_logged_user"
+if [[ -n "$JSON_OUTPUT" ]]; then
+  # Machine-readable output for Admin API (args avoid injection)
+  python3 -c "
+import json, sys
+s, p, k, v = (sys.argv[i] if len(sys.argv) > i else '' for i in range(1, 5))
+t = 'token ' + k + ':' + v if k and v else None
+print(json.dumps({'ok': True, 'site_name': s, 'credentials': {'username': 'Administrator', 'password': p, 'api_key': k, 'api_secret': v, 'token': t}}))
+" "$SITE_NAME" "$ADMIN_PASSWORD" "$API_KEY" "$API_SECRET"
 else
-  echo "API credentials: Generate manually in User → Administrator → Settings → API Access → Generate Keys"
+  echo ""
+  echo "=============================================="
+  echo "Tenant created: $SITE_NAME"
+  echo "=============================================="
+  echo ""
+  echo "Login credentials (web UI):"
+  echo "  Username: Administrator"
+  echo "  Password: $ADMIN_PASSWORD"
+  echo ""
+  if [[ -n "$API_KEY" && -n "$API_SECRET" ]]; then
+    echo "API credentials (for REST API calls):"
+    echo "  API Key:    $API_KEY"
+    echo "  API Secret: $API_SECRET"
+    echo "  Token (use in Authorization header): token $API_KEY:$API_SECRET"
+    echo ""
+    echo "  Example: curl -H \"Authorization: token $API_KEY:$API_SECRET\" http://<host>:<port>/api/method/frappe.auth.get_logged_user"
+  else
+    echo "API credentials: Generate manually in User → Administrator → Settings → API Access → Generate Keys"
+  fi
+  echo ""
+  echo "To serve this tenant: set FRAPPE_SITE_NAME_HEADER=$SITE_NAME for the frontend (or use multi-tenant by port)."
+  echo "=============================================="
 fi
-echo ""
-echo "To serve this tenant: set FRAPPE_SITE_NAME_HEADER=$SITE_NAME for the frontend (or use multi-tenant by port)."
-echo "=============================================="

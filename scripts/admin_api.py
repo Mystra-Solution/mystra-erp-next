@@ -4,6 +4,7 @@ Secured Admin API for tenant management.
 Called by Mystra admin service to create/delete ERPNext tenants.
 
 Endpoints:
+  GET    /admin/tenant     - List all tenants
   POST   /admin/tenant     - Create tenant, returns credentials
   DELETE /admin/tenant/:id  - Delete tenant
 
@@ -69,64 +70,55 @@ def read_json_body(handler: BaseHTTPRequestHandler) -> dict | None:
         return None
 
 
+def list_tenants() -> dict:
+    """List all tenants (sites with site_config.json)."""
+    sites_dir = os.path.join(BENCH_PATH, "sites")
+    tenants = []
+    try:
+        for name in sorted(os.listdir(sites_dir)):
+            if name.startswith(".") or name in ("assets", "common_site_config.json", "apps.txt", "currentsite.txt"):
+                continue
+            path = os.path.join(sites_dir, name)
+            if os.path.isdir(path) and os.path.isfile(os.path.join(path, "site_config.json")):
+                tenants.append(name)
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "tenants": tenants, "count": len(tenants)}
+
+
 def create_tenant(site_name: str, admin_password: str) -> dict:
-    """Create a new tenant (site + ERPNext). Returns credentials or error."""
+    """Create a new tenant by running create-tenant.sh. Returns credentials or error."""
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$", site_name):
         return {"ok": False, "error": "Invalid site name"}
 
-    # bench new-site
-    r = run_bench(
-        "new-site",
-        site_name,
-        "--mariadb-user-host-login-scope=172.%.%.%",
-        f"--db-root-password={DB_PASSWORD}",
-        f"--admin-password={admin_password}",
+    script_path = os.path.join(BENCH_PATH, "create-tenant.sh")
+    if not os.path.isfile(script_path):
+        return {"ok": False, "error": "create-tenant.sh not found (mount scripts in compose)"}
+
+    r = subprocess.run(
+        ["bash", script_path, site_name, admin_password, "--json"],
+        cwd=BENCH_PATH,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "DB_PASSWORD": DB_PASSWORD},
     )
-    if r.returncode != 0:
-        return {"ok": False, "error": r.stderr or r.stdout or "new-site failed"}
 
-    # bench install-app erpnext
-    r = run_bench("--site", site_name, "install-app", "erpnext")
     if r.returncode != 0:
-        return {"ok": False, "error": r.stderr or r.stdout or "install-app failed"}
+        err = (r.stderr or r.stdout or "create-tenant failed").strip()
+        return {"ok": False, "error": err}
 
-    # Generate API keys
-    gen_script = '''
-import json
-try:
-    r = frappe.call("frappe.core.doctype.user.user.generate_keys", user="Administrator")
-    print(json.dumps(r))
-except Exception as e:
-    print(json.dumps({"error": str(e)}), file=__import__("sys").stderr)
-    raise
-'''
-    r = run_bench("--site", site_name, "execute", gen_script)
-    api_key = ""
-    api_secret = ""
-    if r.returncode == 0 and r.stdout:
-        for line in r.stdout.strip().split("\n"):
-            line = line.strip()
-            if line and not line.startswith("{"):
-                continue
+    # Parse JSON from last line of stdout
+    for line in reversed((r.stdout or "").strip().split("\n")):
+        line = line.strip()
+        if line.startswith("{"):
             try:
-                d = json.loads(line)
-                api_key = d.get("api_key", "")
-                api_secret = d.get("api_secret", "")
-                break
+                data = json.loads(line)
+                if data.get("ok"):
+                    return data
+                return {"ok": False, "error": data.get("error", "Unknown error")}
             except json.JSONDecodeError:
-                pass
-
-    return {
-        "ok": True,
-        "site_name": site_name,
-        "credentials": {
-            "username": "Administrator",
-            "password": admin_password,
-            "api_key": api_key,
-            "api_secret": api_secret,
-            "token": f"token {api_key}:{api_secret}" if api_key and api_secret else None,
-        },
-    }
+                continue
+    return {"ok": False, "error": "Could not parse credentials from create-tenant.sh"}
 
 
 def delete_tenant(site_name: str, no_backup: bool = True) -> dict:
@@ -157,6 +149,14 @@ class AdminAPIHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/health", "/admin/health"):
             json_response(self, 200, {"status": "ok", "service": "admin-api"})
+            return
+        if self.path == "/admin/tenant":
+            if not require_auth(self):
+                json_response(self, 401, {"error": "Unauthorized"})
+                return
+            result = list_tenants()
+            status = 200 if result.get("ok") else 500
+            json_response(self, status, result)
             return
         json_response(self, 404, {"error": "Not found"})
 

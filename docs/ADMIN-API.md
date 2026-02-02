@@ -45,6 +45,25 @@ All endpoints (except health) require authentication via one of:
 
 ## Endpoints
 
+### List tenants
+
+```
+GET /admin/tenant
+X-Admin-API-Key: <your-key>
+```
+
+**Success (200):**
+
+```json
+{
+  "ok": true,
+  "tenants": ["erp.kynolabs.dev", "tenant2.example.com", "tenant3.example.com"],
+  "count": 3
+}
+```
+
+---
+
 ### Health check (no auth)
 
 ```
@@ -134,6 +153,13 @@ DELETE /admin/tenant/tenant3.example.com?no_backup=false
 ---
 
 ## Example: Mystra admin service
+
+**List tenants:**
+
+```bash
+curl -s "http://<erp-host>:9090/admin/tenant" \
+  -H "X-Admin-API-Key: $ADMIN_API_KEY"
+```
 
 **Create tenant:**
 
