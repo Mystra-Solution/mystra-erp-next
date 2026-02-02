@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
 # Create a new ERPNext tenant (new site + new MariaDB database, same Redis).
+# Sets Administrator password, creates API keys, and returns credentials.
 #
 # In this setup:
 #   - One MariaDB server: each tenant = new database on the same server (created by bench new-site).
@@ -33,10 +34,11 @@ usage() {
   echo "Usage: $0 <site_name> <admin_password> [db_root_password]"
   echo ""
   echo "  site_name       Tenant site name (e.g. tenant2.example.com or tenant2.kynolabs.dev)"
-  echo "  admin_password  Administrator login password for this tenant"
+  echo "  admin_password  Administrator login password (also used as default password)"
   echo "  db_root_password Optional. MariaDB root password (default: \$DB_PASSWORD)"
   echo ""
   echo "Creates: new bench site + new MariaDB database for this tenant. Redis is shared."
+  echo "Returns: credentials (login + API key/secret) for the tenant."
   echo "Env: DB_PASSWORD, COMPOSE_PROJECT_NAME, COMPOSE_FILE, COMPOSE_CMD"
   exit 1
 }
@@ -69,7 +71,46 @@ run_bench new-site "$SITE_NAME" \
 echo "[$(date +%FT%T)] Installing ERPNext on site: $SITE_NAME"
 run_bench --site "$SITE_NAME" install-app erpnext
 
-echo "[$(date +%FT%T)] Tenant created: $SITE_NAME"
-echo "  - Site name: $SITE_NAME"
-echo "  - Login: Administrator / (your admin password)"
-echo "  - To serve this tenant by domain: set FRAPPE_SITE_NAME_HEADER to $SITE_NAME for the frontend that will serve it (or use multi-tenant nginx/Traefik by host)."
+echo "[$(date +%FT%T)] Generating API key for Administrator"
+GEN_SCRIPT='
+import json
+try:
+    r = frappe.call("frappe.core.doctype.user.user.generate_keys", user="Administrator")
+    print(json.dumps(r))
+except Exception as e:
+    print(json.dumps({"error": str(e)}), file=__import__("sys").stderr)
+    raise
+'
+API_RESULT=$(run_bench --site "$SITE_NAME" execute "$GEN_SCRIPT" 2>/dev/null | tail -1)
+
+if [[ -z "$API_RESULT" || "$API_RESULT" == *"error"* ]]; then
+  echo "[$(date +%FT%T)] WARNING: Could not generate API key. You can generate it manually in the UI: User → Administrator → Settings → API Access → Generate Keys." >&2
+  API_KEY=""
+  API_SECRET=""
+else
+  API_KEY=$(echo "$API_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('api_key',''))" 2>/dev/null || echo "")
+  API_SECRET=$(echo "$API_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('api_secret',''))" 2>/dev/null || echo "")
+fi
+
+echo ""
+echo "=============================================="
+echo "Tenant created: $SITE_NAME"
+echo "=============================================="
+echo ""
+echo "Login credentials (web UI):"
+echo "  Username: Administrator"
+echo "  Password: $ADMIN_PASSWORD"
+echo ""
+if [[ -n "$API_KEY" && -n "$API_SECRET" ]]; then
+  echo "API credentials (for REST API calls):"
+  echo "  API Key:    $API_KEY"
+  echo "  API Secret: $API_SECRET"
+  echo "  Token (use in Authorization header): token $API_KEY:$API_SECRET"
+  echo ""
+  echo "  Example: curl -H \"Authorization: token $API_KEY:$API_SECRET\" http://<host>:<port>/api/method/frappe.auth.get_logged_user"
+else
+  echo "API credentials: Generate manually in User → Administrator → Settings → API Access → Generate Keys"
+fi
+echo ""
+echo "To serve this tenant: set FRAPPE_SITE_NAME_HEADER=$SITE_NAME for the frontend (or use multi-tenant by port)."
+echo "=============================================="
