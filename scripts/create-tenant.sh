@@ -15,9 +15,9 @@
 #   ./scripts/create-tenant.sh tenant2.example.com 'AdminPass123!'
 #
 # Or with explicit args:
-#   ./scripts/create-tenant.sh <site_name> <admin_password> [db_root_password] [--json]
+#   ./scripts/create-tenant.sh <site_name> <admin_password> [db_root_password] [--output FILE]
 #
-#   --json   Output credentials as JSON to stdout (for Admin API)
+#   --output FILE   Write credentials as JSON to FILE (for Admin API; avoids stdout mixing)
 #
 # Usage (inside backend container):
 #   ./scripts/create-tenant.sh tenant2.example.com 'AdminPass123!'
@@ -28,16 +28,22 @@ set -euo pipefail
 SITE_NAME=""
 ADMIN_PASSWORD=""
 DB_PASSWORD_ARG=""
-JSON_OUTPUT=""
+OUTPUT_FILE=""
 ENV_DB_PASSWORD="${DB_PASSWORD:-}"
+NEXT_IS_OUTPUT=""
 
-# Parse args: site_name, admin_password, [db_root_password], [--json]
+# Parse args: site_name, admin_password, [db_root_password], [--output FILE]
 for arg in "$@"; do
-  if [[ "$arg" == "--json" ]]; then
-    JSON_OUTPUT="1"
-  elif [[ -z "$SITE_NAME" ]]; then
+  if [[ -n "$NEXT_IS_OUTPUT" ]]; then
+    OUTPUT_FILE="$arg"
+    NEXT_IS_OUTPUT=""
+  elif [[ "$arg" == "--output" ]]; then
+    NEXT_IS_OUTPUT="1"
+  elif [[ "$arg" == --output=* ]]; then
+    OUTPUT_FILE="${arg#--output=}"
+  elif [[ -z "$SITE_NAME" && "$arg" != --* ]]; then
     SITE_NAME="$arg"
-  elif [[ -n "$SITE_NAME" && -z "$ADMIN_PASSWORD" ]]; then
+  elif [[ -n "$SITE_NAME" && -z "$ADMIN_PASSWORD" && "$arg" != --* ]]; then
     ADMIN_PASSWORD="$arg"
   elif [[ -n "$ADMIN_PASSWORD" && -z "$DB_PASSWORD_ARG" && "$arg" != --* ]]; then
     DB_PASSWORD_ARG="$arg"
@@ -49,12 +55,12 @@ COMPOSE_FILE="${COMPOSE_FILE:-compose.custom.yaml}"
 COMPOSE_CMD="${COMPOSE_CMD:-docker compose -p $COMPOSE_PROJECT_NAME -f $COMPOSE_FILE}"
 
 usage() {
-  echo "Usage: $0 <site_name> <admin_password> [db_root_password] [--json]"
+  echo "Usage: $0 <site_name> <admin_password> [db_root_password] [--output FILE]"
   echo ""
   echo "  site_name       Tenant site name (e.g. tenant2.example.com or tenant2.kynolabs.dev)"
   echo "  admin_password  Administrator login password (also used as default password)"
   echo "  db_root_password Optional. MariaDB root password (default: \$DB_PASSWORD)"
-  echo "  --json          Output credentials as JSON (for Admin API)"
+  echo "  --output FILE   Write credentials as JSON to FILE (for Admin API)"
   echo ""
   echo "Creates: new bench site + new MariaDB database for this tenant. Redis is shared."
   echo "Returns: credentials (login + API key/secret) for the tenant."
@@ -79,8 +85,8 @@ run_bench() {
   fi
 }
 
-# When --json: redirect all progress to stderr so only JSON goes to stdout
-if [[ -n "$JSON_OUTPUT" ]]; then
+# When --output: redirect all progress to stderr (API reads credentials from file)
+if [[ -n "$OUTPUT_FILE" ]]; then
   exec 3>&1
   exec 1>&2
 fi
@@ -117,15 +123,16 @@ else
   API_SECRET=$(echo "$API_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('api_secret',''))" 2>/dev/null || echo "")
 fi
 
-if [[ -n "$JSON_OUTPUT" ]]; then
-  exec 1>&3  # restore stdout for JSON
-  # Machine-readable output for Admin API (args avoid injection)
+if [[ -n "$OUTPUT_FILE" ]]; then
+  # Write credentials to file for Admin API (avoids stdout/stderr mixing)
   python3 -c "
 import json, sys
-s, p, k, v = (sys.argv[i] if len(sys.argv) > i else '' for i in range(1, 5))
+s, p, k, v, out = (sys.argv[i] if len(sys.argv) > i else '' for i in range(1, 6))
 t = 'token ' + k + ':' + v if k and v else None
-print(json.dumps({'ok': True, 'site_name': s, 'credentials': {'username': 'Administrator', 'password': p, 'api_key': k, 'api_secret': v, 'token': t}}))
-" "$SITE_NAME" "$ADMIN_PASSWORD" "$API_KEY" "$API_SECRET"
+j = {'ok': True, 'site_name': s, 'credentials': {'username': 'Administrator', 'password': p, 'api_key': k, 'api_secret': v, 'token': t}}
+with open(out, 'w') as f:
+    json.dump(j, f, indent=2)
+" "$SITE_NAME" "$ADMIN_PASSWORD" "$API_KEY" "$API_SECRET" "$OUTPUT_FILE"
 else
   echo ""
   echo "=============================================="

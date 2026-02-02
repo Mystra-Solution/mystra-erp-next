@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -95,30 +96,37 @@ def create_tenant(site_name: str, admin_password: str) -> dict:
     if not os.path.isfile(script_path):
         return {"ok": False, "error": "create-tenant.sh not found (mount scripts in compose)"}
 
-    r = subprocess.run(
-        ["bash", script_path, site_name, admin_password, "--json"],
-        cwd=BENCH_PATH,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "DB_PASSWORD": DB_PASSWORD},
-    )
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        out_path = f.name
 
-    if r.returncode != 0:
-        err = (r.stderr or r.stdout or "create-tenant failed").strip()
-        return {"ok": False, "error": err}
+    try:
+        r = subprocess.run(
+            ["bash", script_path, site_name, admin_password, "--output", out_path],
+            cwd=BENCH_PATH,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "DB_PASSWORD": DB_PASSWORD},
+        )
 
-    # Parse JSON from last line of stdout
-    for line in reversed((r.stdout or "").strip().split("\n")):
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                data = json.loads(line)
-                if data.get("ok"):
-                    return data
-                return {"ok": False, "error": data.get("error", "Unknown error")}
-            except json.JSONDecodeError:
-                continue
-    return {"ok": False, "error": "Could not parse credentials from create-tenant.sh"}
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or "create-tenant failed").strip()
+            skip = ("[=", "Updating DocTypes")
+            lines = [l for l in err.split("\n") if l.strip() and not any(s in l for s in skip)]
+            concise = "\n".join(lines[-15:]) if lines else err[-800:]
+            return {"ok": False, "error": concise or "Tenant creation failed"}
+
+        if not os.path.isfile(out_path):
+            return {"ok": False, "error": "Credentials file not created"}
+        with open(out_path) as f:
+            data = json.load(f)
+        if data.get("ok"):
+            return data
+        return {"ok": False, "error": data.get("error", "Unknown error")}
+    finally:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
 
 
 def delete_tenant(site_name: str, no_backup: bool = True) -> dict:
