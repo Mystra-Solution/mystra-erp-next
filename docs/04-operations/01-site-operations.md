@@ -57,6 +57,7 @@ export DB_PASSWORD='your-db-root-password'
 Options:
 
 - `--no-backup` — Skip backup before deletion (faster; use when data is disposable)
+- `--force` — Skip site-exists check (use when the site list is empty or unreliable)
 - Second argument — DB root password (or use `DB_PASSWORD` env)
 
 The script drops the site's database and moves the site folder to `archived_sites/`. Redis is shared, so no tenant-specific cleanup is needed. If the tenant had a dedicated frontend port, remove it from your compose overrides.

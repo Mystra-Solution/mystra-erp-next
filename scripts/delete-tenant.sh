@@ -23,17 +23,21 @@
 #
 # Options:
 #   --no-backup   Skip backup before deletion (faster, use when data is disposable)
+#   --force       Skip site-exists check (use when list-sites is empty or unreliable)
 #
 set -euo pipefail
 
 SITE_NAME=""
 DB_PASSWORD_ARG=""
 NO_BACKUP=""
+SKIP_CHECK=""
 
-# Parse args: site_name, optional db_password, optional --no-backup
+# Parse args: site_name, optional db_password, optional --no-backup, optional --force
 for arg in "$@"; do
   if [[ "$arg" == "--no-backup" ]]; then
     NO_BACKUP="--no-backup"
+  elif [[ "$arg" == "--force" ]]; then
+    SKIP_CHECK="1"
   elif [[ -z "$SITE_NAME" && "$arg" != --* ]]; then
     SITE_NAME="$arg"
   elif [[ -n "$SITE_NAME" && -z "$DB_PASSWORD_ARG" && "$arg" != --* ]]; then
@@ -52,6 +56,7 @@ usage() {
   echo "  site_name       Tenant site name to delete (e.g. tenant2.example.com)"
   echo "  db_root_password Optional. MariaDB root password (default: \$DB_PASSWORD)"
   echo "  --no-backup     Skip backup before deletion (faster)"
+  echo "  --force         Skip site-exists check (when list-sites is empty)"
   echo ""
   echo "Removes: bench site + MariaDB database. Site folder moved to archived_sites."
   echo "Env: DB_PASSWORD, COMPOSE_PROJECT_NAME, COMPOSE_FILE, COMPOSE_CMD"
@@ -75,12 +80,22 @@ run_bench() {
   fi
 }
 
-# Verify site exists
-SITES=$(run_bench list-sites 2>/dev/null || true)
-if [[ "$SITES" != *"$SITE_NAME"* ]]; then
-  echo "ERROR: Site '$SITE_NAME' not found. Available sites:" >&2
-  echo "$SITES" >&2
-  exit 1
+# Verify site exists (unless --force)
+# Note: bench list-sites was removed in newer Frappe; list sites/ dirs with site_config.json
+if [[ -z "$SKIP_CHECK" ]]; then
+  list_sites_cmd='cd /home/frappe/frappe-bench 2>/dev/null && for d in sites/*/; do [ -f "${d}site_config.json" ] && basename "$d"; done'
+  if command -v docker >/dev/null 2>&1; then
+    SITES=$($COMPOSE_CMD exec -T backend sh -c "$list_sites_cmd" 2>/dev/null || true)
+  else
+    SITES=""
+  fi
+  if [[ "$SITES" != *"$SITE_NAME"* ]]; then
+    echo "ERROR: Site '$SITE_NAME' not found. Available sites:" >&2
+    echo "$SITES" >&2
+    echo "" >&2
+    echo "If the site exists, run with --force to skip this check." >&2
+    exit 1
+  fi
 fi
 
 echo "[$(date +%FT%T)] Deleting tenant: $SITE_NAME"
