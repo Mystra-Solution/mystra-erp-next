@@ -1,0 +1,26 @@
+# Admin API for tenant management (create/delete).
+# Called by Mystra admin service. Secured with ADMIN_API_KEY.
+#
+# Add when generating compose:
+#   docker compose -f compose.yaml -f overrides/compose.mariadb.yaml -f overrides/compose.redis.yaml -f overrides/compose.admin-api.yaml --env-file custom.env config > compose.custom.yaml
+#
+# Set ADMIN_API_KEY in custom.env (required). Optionally ADMIN_API_PORT (default 9090).
+services:
+  admin-api:
+    <<: *backend_defaults
+    command:
+      - python3
+      - /home/frappe/frappe-bench/admin_api.py
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+        required: true
+    environment:
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required for admin-api}
+      ADMIN_API_PORT: ${ADMIN_API_PORT:-9090}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required for admin-api}
+    ports:
+      - "${ADMIN_API_PORT:-9090}:9090"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - ./scripts/admin_api.py:/home/frappe/frappe-bench/admin_api.py:ro

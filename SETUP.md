@@ -285,3 +285,4 @@ Expected: JSON with a `"data"` array (may be empty if no records).
 - **Start / site setup:** `docs/02-setup/03-start-setup.md`
 - **Site operations:** `docs/04-operations/01-site-operations.md`
 - **Create new tenant:** `scripts/create-tenant.sh` (new site + DB on same MariaDB, same Redis) — see [site operations](docs/04-operations/01-site-operations.md#create-new-tenant-multi-tenancy)
+- **Admin API (Mystra):** Secured HTTP API for tenant create/delete — see [docs/ADMIN-API.md](docs/ADMIN-API.md)

@@ -45,6 +45,12 @@ To serve the new tenant **by static IP** (same server, no domain): use a **secon
 
 To serve by domain, use a frontend that routes by host (e.g. set `FRAPPE_SITE_NAME_HEADER` per frontend or use [multi-tenancy](03-production/03-multi-tenancy.md) with one frontend per site/port).
 
+## Admin API (Mystra)
+
+For programmatic tenant create/delete from the Mystra admin service, use the **Admin API**. See [docs/ADMIN-API.md](../ADMIN-API.md) for setup, authentication, and endpoints.
+
+---
+
 ## Delete tenant
 
 To remove a tenant and all its resources (site + MariaDB database):
