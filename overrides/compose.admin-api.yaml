@@ -5,16 +5,20 @@
 #   docker compose -f compose.yaml -f overrides/compose.mariadb.yaml -f overrides/compose.redis.yaml -f overrides/compose.admin-api.yaml --env-file custom.env config > compose.custom.yaml
 #
 # Set ADMIN_API_KEY in custom.env (required). Optionally ADMIN_API_PORT (default 9090).
+#
+# Note: Inlined config (no anchor) so it works when compose files are merged.
 services:
   admin-api:
-    <<: *backend_defaults
-    command:
-      - python3
-      - /home/frappe/frappe-bench/admin_api.py
+    image: ${CUSTOM_IMAGE:-frappe/erpnext}:${CUSTOM_TAG:-$ERPNEXT_VERSION}
+    pull_policy: ${PULL_POLICY:-always}
+    restart: ${RESTART_POLICY:-unless-stopped}
     depends_on:
       configurator:
         condition: service_completed_successfully
         required: true
+    command:
+      - python3
+      - /home/frappe/frappe-bench/admin_api.py
     environment:
       ADMIN_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required for admin-api}
       ADMIN_API_PORT: ${ADMIN_API_PORT:-9090}
