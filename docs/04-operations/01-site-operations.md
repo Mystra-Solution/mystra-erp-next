@@ -45,6 +45,22 @@ To serve the new tenant **by static IP** (same server, no domain): use a **secon
 
 To serve by domain, use a frontend that routes by host (e.g. set `FRAPPE_SITE_NAME_HEADER` per frontend or use [multi-tenancy](03-production/03-multi-tenancy.md) with one frontend per site/port).
 
+## Delete tenant
+
+To remove a tenant and all its resources (site + MariaDB database):
+
+```sh
+export DB_PASSWORD='your-db-root-password'
+./scripts/delete-tenant.sh tenant2.example.com
+```
+
+Options:
+
+- `--no-backup` — Skip backup before deletion (faster; use when data is disposable)
+- Second argument — DB root password (or use `DB_PASSWORD` env)
+
+The script drops the site's database and moves the site folder to `archived_sites/`. Redis is shared, so no tenant-specific cleanup is needed. If the tenant had a dedicated frontend port, remove it from your compose overrides.
+
 ---
 
 To create Postgres site (assuming you already use [Postgres compose override](../02-setup/05-overrides.md)) you need have to do set `root_login` and `root_password` in common config before that:
