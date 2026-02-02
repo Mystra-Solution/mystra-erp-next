@@ -109,11 +109,14 @@ def create_tenant(site_name: str, admin_password: str) -> dict:
         )
 
         if r.returncode != 0:
-            err = (r.stderr or r.stdout or "create-tenant failed").strip()
-            skip = ("[=", "Updating DocTypes")
+            err = (r.stderr or r.stdout or "").strip()
+            if err:
+                sys.stderr.write(f"[admin-api] create-tenant failed:\n{err}\n")
+            # Never expose verbose progress in API response; cap at 300 chars
+            skip = ("[=", "Updating DocTypes", "Updating customizations", "Updating Dashboard", "Installing ")
             lines = [l for l in err.split("\n") if l.strip() and not any(s in l for s in skip)]
-            concise = "\n".join(lines[-15:]) if lines else err[-800:]
-            return {"ok": False, "error": concise or "Tenant creation failed"}
+            concise = "\n".join(lines[-5:]) if lines else "Tenant creation failed. Check admin-api container logs for details."
+            return {"ok": False, "error": concise[:300] if len(concise) > 300 else concise}
 
         if not os.path.isfile(out_path):
             return {"ok": False, "error": "Credentials file not created"}
