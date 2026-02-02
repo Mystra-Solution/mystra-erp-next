@@ -79,6 +79,12 @@ run_bench() {
   fi
 }
 
+# When --json: redirect all progress to stderr so only JSON goes to stdout
+if [[ -n "$JSON_OUTPUT" ]]; then
+  exec 3>&1
+  exec 1>&2
+fi
+
 echo "[$(date +%FT%T)] Creating tenant site: $SITE_NAME"
 echo "[$(date +%FT%T)] New MariaDB database will be created on the same server; Redis is shared."
 
@@ -112,6 +118,7 @@ else
 fi
 
 if [[ -n "$JSON_OUTPUT" ]]; then
+  exec 1>&3  # restore stdout for JSON
   # Machine-readable output for Admin API (args avoid injection)
   python3 -c "
 import json, sys
