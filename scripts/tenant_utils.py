@@ -75,7 +75,7 @@ def create_frontend_for_tenant(
 
     service_name = f"frontend-tenant-{_sanitize_service_name(site_name)}"
     image = image or os.environ.get("FRONTEND_IMAGE", "frappe/erpnext:version-15")
-    network = network or os.environ.get("DOCKER_NETWORK", "frappe_docker_default")
+    network_name = network or os.environ.get("DOCKER_NETWORK", "frappe_docker_default")
     sites_volume = sites_volume or os.environ.get("DOCKER_SITES_VOLUME", "frappe_docker_sites")
 
     try:
@@ -83,6 +83,53 @@ def create_frontend_for_tenant(
     except docker.errors.DockerException as e:
         log(f"ERROR: Cannot connect to Docker: {e}")
         return {"ok": False, "error": f"Cannot connect to Docker: {e}"}
+
+    # Resolve network: try to get network from backend container first (most reliable)
+    # Docker Compose prefixes container names with project name, so search by label instead
+    resolved_network_name = network_name
+    backend_container = None
+    try:
+        # Try exact name first (for manual setups)
+        try:
+            backend_container = client.containers.get("backend")
+        except docker.errors.NotFound:
+            # Search by Docker Compose label (com.docker.compose.service=backend)
+            containers = client.containers.list(
+                filters={"label": "com.docker.compose.service=backend"},
+                all=True
+            )
+            if containers:
+                backend_container = containers[0]
+                log(f"Found backend container: {backend_container.name}")
+            else:
+                # Try name pattern (frappe-backend-1, mystra-erp-next-backend-1, etc.)
+                all_containers = client.containers.list(all=True)
+                for c in all_containers:
+                    if c.name.endswith("-backend-1") or c.name == "backend":
+                        backend_container = c
+                        log(f"Found backend container by pattern: {backend_container.name}")
+                        break
+        
+        if not backend_container:
+            return {"ok": False, "error": "Backend container not found. Start the stack first."}
+        
+        if backend_container.status != "running":
+            return {"ok": False, "error": f"Backend container is not running (status: {backend_container.status}). Start the stack first."}
+        
+        backend_networks = backend_container.attrs.get("NetworkSettings", {}).get("Networks", {})
+        if backend_networks:
+            resolved_network_name = list(backend_networks.keys())[0]
+            log(f"Using network from backend container: {resolved_network_name}")
+        else:
+            log(f"WARNING: Backend has no networks, using provided network: {network_name}")
+    except Exception as e:
+        log(f"WARNING: Could not resolve network from backend: {e}, using name: {network_name}")
+
+    # Verify network exists
+    try:
+        client.networks.get(resolved_network_name)
+    except docker.errors.NotFound:
+        return {"ok": False, "error": f"Network '{resolved_network_name}' not found. Check DOCKER_NETWORK env var or ensure backend is on the expected network."}
 
     # Check if container already exists
     try:
@@ -114,7 +161,7 @@ def create_frontend_for_tenant(
             ports={"8080/tcp": port},
             environment=env,
             volumes={sites_volume: {"bind": "/home/frappe/frappe-bench/sites", "mode": "rw"}},
-            network=network,
+            network=resolved_network_name,
             command="nginx-entrypoint.sh",
         )
         log(f"Created frontend container {service_name} on port {port}")
