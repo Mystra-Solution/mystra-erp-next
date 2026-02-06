@@ -131,6 +131,25 @@ def create_frontend_for_tenant(
     except docker.errors.NotFound:
         return {"ok": False, "error": f"Network '{resolved_network_name}' not found. Check DOCKER_NETWORK env var or ensure backend is on the expected network."}
 
+    # Check if port is already in use
+    try:
+        all_containers = client.containers.list(all=True)
+        for container in all_containers:
+            container_ports = container.attrs.get("HostConfig", {}).get("PortBindings", {})
+            for container_port, host_bindings in container_ports.items():
+                if host_bindings:
+                    for binding in host_bindings:
+                        host_port = binding.get("HostPort")
+                        if host_port and int(host_port) == port:
+                            container_name = container.name
+                            log(f"Port {port} is already in use by container {container_name}")
+                            return {
+                                "ok": False,
+                                "error": f"Port {port} is already in use by container '{container_name}'. Please use a different port."
+                            }
+    except Exception as e:
+        log(f"WARNING: Could not check port availability: {e}")
+
     # Check if container already exists
     try:
         existing = client.containers.get(service_name)

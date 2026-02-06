@@ -219,7 +219,7 @@ class AdminAPIHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ("/", "/health", "/admin/health"):
-            json_response(self, 200, {"status": "ok", "service": "admin-api"})
+            json_response(self, 200, {"status": "ok", "service": "admin-api", "response_format": "readable"})
             return
         if self.path == "/admin/tenant":
             if not require_auth(self):
