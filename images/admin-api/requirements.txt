@@ -1,0 +1,2 @@
+# For dynamic frontend creation (create_frontend=true)
+docker>=7.0.0

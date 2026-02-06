@@ -1,0 +1,20 @@
+# Use native arm64 platform (Apple Silicon Mac).
+# Add when generating compose on Mac to avoid "image does not provide linux/amd64" error.
+# Usage: include -f overrides/compose.mac-arm64.yaml in your config command.
+services:
+  admin-api:
+    platform: linux/arm64
+  backend:
+    platform: linux/arm64
+  configurator:
+    platform: linux/arm64
+  frontend:
+    platform: linux/arm64
+  queue-long:
+    platform: linux/arm64
+  queue-short:
+    platform: linux/arm64
+  scheduler:
+    platform: linux/arm64
+  websocket:
+    platform: linux/arm64

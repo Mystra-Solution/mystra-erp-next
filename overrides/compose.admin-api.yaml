@@ -6,12 +6,23 @@
 #
 # Set ADMIN_API_KEY in custom.env (required). Optionally ADMIN_API_PORT (default 9090).
 #
+# For dynamic frontend creation (create_frontend=true): use an image with the docker
+# package (e.g. build images/admin-api/Dockerfile) and ensure Docker socket is mounted.
+#
 # Note: Inlined config (no anchor) so it works when compose files are merged.
 services:
   admin-api:
-    image: ${CUSTOM_IMAGE:-frappe/erpnext}:${CUSTOM_TAG:-$ERPNEXT_VERSION}
+    build:
+      context: .
+      dockerfile: images/admin-api/Dockerfile
+      args:
+        # Base image for admin-api (must have bench/frappe). Set to custom:15 when using custom build.
+        BASE_IMAGE: ${ADMIN_API_BASE_IMAGE:-frappe/erpnext:${ERPNEXT_VERSION:-version-15}}
+    image: admin-api:${CUSTOM_TAG:-$ERPNEXT_VERSION}
     pull_policy: ${PULL_POLICY:-always}
     restart: ${RESTART_POLICY:-unless-stopped}
+    # Run as root to access Docker socket for frontend creation
+    user: "0:0"
     depends_on:
       configurator:
         condition: service_completed_successfully
@@ -23,9 +34,23 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required for admin-api}
       ADMIN_API_PORT: ${ADMIN_API_PORT:-9090}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required for admin-api}
+      FRAPPE_SITE_NAME_HEADER: ${FRAPPE_SITE_NAME_HEADER:-}
+      HTTP_PUBLISH_PORT: ${HTTP_PUBLISH_PORT:-8080}
+      TENANT2_SITE_NAME: ${TENANT2_SITE_NAME:-}
+      TENANT2_HTTP_PORT: ${TENANT2_HTTP_PORT:-8081}
+      TENANT3_SITE_NAME: ${TENANT3_SITE_NAME:-}
+      TENANT3_HTTP_PORT: ${TENANT3_HTTP_PORT:-8082}
+      TENANT_PORTS: ${TENANT_PORTS:-}
+      # For frontend creation (create_frontend=true)
+      FRONTEND_IMAGE: ${CUSTOM_IMAGE:-frappe/erpnext}:${CUSTOM_TAG:-$ERPNEXT_VERSION}
+      DOCKER_NETWORK: ${COMPOSE_PROJECT_NAME:-frappe_docker}_default
+      DOCKER_SITES_VOLUME: ${COMPOSE_PROJECT_NAME:-frappe_docker}_sites
     ports:
       - "${ADMIN_API_PORT:-9090}:9090"
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - ./scripts/admin_api.py:/home/frappe/frappe-bench/admin_api.py:ro
+      - ./scripts/tenant_utils.py:/home/frappe/frappe-bench/tenant_utils.py:ro
       - ./scripts/create-tenant.sh:/home/frappe/frappe-bench/create-tenant.sh:ro
+      # Required for frontend creation (create_frontend=true)
+      - /var/run/docker.sock:/var/run/docker.sock

@@ -12,6 +12,8 @@ Secured HTTP API for creating and deleting ERPNext tenants. Intended to be calle
      --env-file custom.env config > compose.custom.yaml
    ```
 
+   **On Mac (Apple Silicon):** add `-f overrides/compose.mac-arm64.yaml` to avoid platform errors.
+
 2. **Set `ADMIN_API_KEY`** in `custom.env` (required):
 
    ```
@@ -88,9 +90,20 @@ X-Admin-API-Key: <your-key>
 
 {
   "site_name": "tenant3.example.com",
-  "admin_password": "SecurePass123!"
+  "admin_password": "SecurePass123!",
+  "port": 8085,
+  "create_frontend": true
 }
 ```
+
+**Body fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `site_name` | Yes | Tenant site name (e.g. tenant3.example.com) |
+| `admin_password` | Yes | Administrator password |
+| `port` | No | Host port for the tenant. Required when `create_frontend` is true. |
+| `create_frontend` | No | If `true`, create an nginx frontend container for this tenant on the given port. Requires Docker socket and docker package in admin-api image. |
 
 **Success (201):**
 
@@ -98,6 +111,8 @@ X-Admin-API-Key: <your-key>
 {
   "ok": true,
   "site_name": "tenant3.example.com",
+  "port": 8085,
+  "frontend_created": true,
   "credentials": {
     "username": "Administrator",
     "password": "SecurePass123!",
@@ -108,11 +123,35 @@ X-Admin-API-Key: <your-key>
 }
 ```
 
+- `port`: Resolved from request body, or from env (`FRAPPE_SITE_NAME_HEADER` → 8080, `TENANT2_SITE_NAME` → 8081, etc., or `TENANT_PORTS`).
+- `frontend_created`: `true` when an nginx frontend container was created for this tenant.
+
 **Error (400):**
 
 ```json
 {"ok": false, "error": "site_name and admin_password required"}
+{"ok": false, "error": "port required and must be 1-65535 when create_frontend is true"}
 ```
+
+---
+
+### Frontend creation (create_frontend=true)
+
+To create an nginx frontend for each tenant automatically:
+
+1. **The admin-api override builds the admin-api image** with the Docker SDK. Ensure `ADMIN_API_BASE_IMAGE` matches your main app image:
+   - Using custom build: `ADMIN_API_BASE_IMAGE=custom:15` in `custom.env`
+   - Using default: `ADMIN_API_BASE_IMAGE` can be omitted (defaults to `frappe/erpnext:version-15`)
+
+2. **Regenerate compose and build** the admin-api service:
+   ```bash
+   docker compose -f compose.custom.yaml build admin-api
+   docker compose -f compose.custom.yaml up -d --force-recreate admin-api
+   ```
+
+3. **Docker socket** is mounted by default in `compose.admin-api.yaml` for frontend creation.
+
+4. **Env vars** (optional): `FRONTEND_IMAGE`, `DOCKER_NETWORK`, `DOCKER_SITES_VOLUME` — defaults work with the standard compose setup.
 
 ---
 
@@ -126,12 +165,14 @@ X-Admin-API-Key: <your-key>
 **Query params:**
 
 - `no_backup` — `true` (default) to skip backup before deletion; `false` to create a backup
+- `remove_frontend` — `true` (default) to stop and remove the tenant's nginx frontend container; `false` to keep it
 
 **Example:**
 
 ```
 DELETE /admin/tenant/tenant3.example.com
 DELETE /admin/tenant/tenant3.example.com?no_backup=false
+DELETE /admin/tenant/tenant3.example.com?remove_frontend=false
 ```
 
 **Success (200):**
@@ -140,7 +181,8 @@ DELETE /admin/tenant/tenant3.example.com?no_backup=false
 {
   "ok": true,
   "site_name": "tenant3.example.com",
-  "message": "Tenant deleted"
+  "message": "Tenant deleted",
+  "frontend_removed": true
 }
 ```
 
@@ -161,13 +203,13 @@ curl -s "http://<erp-host>:9090/admin/tenant" \
   -H "X-Admin-API-Key: $ADMIN_API_KEY"
 ```
 
-**Create tenant:**
+**Create tenant (with frontend on port 8085):**
 
 ```bash
 curl -X POST "http://<erp-host>:9090/admin/tenant" \
   -H "X-Admin-API-Key: $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"site_name": "acme.example.com", "admin_password": "AdminPass123!"}'
+  -d '{"site_name": "acme.example.com", "admin_password": "AdminPass123!", "port": 8085, "create_frontend": true}'
 ```
 
 **Delete tenant:**

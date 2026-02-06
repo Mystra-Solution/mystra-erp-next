@@ -17,9 +17,29 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
+
+# Import tenant utilities
+sys.path.insert(0, os.path.dirname(__file__))
+try:
+    from tenant_utils import (
+        create_tenant as create_tenant_py,
+        resolve_tenant_port,
+        create_frontend_for_tenant,
+        remove_frontend_for_tenant,
+    )
+except ImportError:
+    create_tenant_py = None
+    resolve_tenant_port = None
+    create_frontend_for_tenant = None
+    remove_frontend_for_tenant = None
+
+
+def _ensure_port(result: dict, site_name: str) -> None:
+    """Ensure result has 'port' key. Mutates result in place."""
+    if result.get("ok") and "port" not in result:
+        result["port"] = resolve_tenant_port(site_name) if resolve_tenant_port else 8080
 
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
@@ -87,55 +107,90 @@ def list_tenants() -> dict:
     return {"ok": True, "tenants": tenants, "count": len(tenants)}
 
 
-def create_tenant(site_name: str, admin_password: str) -> dict:
-    """Create a new tenant by running create-tenant.sh. Returns credentials or error."""
+def create_tenant(
+    site_name: str,
+    admin_password: str,
+    port: int | None = None,
+    create_frontend: bool = False,
+) -> dict:
+    """Create a new tenant. Uses Python function if available, falls back to shell script."""
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$", site_name):
         return {"ok": False, "error": "Invalid site name"}
 
+    if not DB_PASSWORD:
+        return {"ok": False, "error": "DB_PASSWORD not configured"}
+
+    if create_frontend and (port is None or port < 1 or port > 65535):
+        return {"ok": False, "error": "port required and must be 1-65535 when create_frontend is true"}
+
+    if create_frontend and not create_tenant_py:
+        return {"ok": False, "error": "create_frontend requires tenant_utils (Python path)"}
+
+    # Use Python function if available (cleaner, no subprocess overhead)
+    if create_tenant_py:
+        try:
+            result = create_tenant_py(
+                site_name,
+                admin_password,
+                DB_PASSWORD,
+                BENCH_PATH,
+                verbose=False,
+                port=port,
+                create_frontend=create_frontend,
+            )
+            _ensure_port(result, site_name)
+            return result
+        except Exception as e:
+            sys.stderr.write(f"[admin-api] create_tenant_py exception: {e}\n")
+            return {"ok": False, "error": f"Tenant creation failed: {str(e)}"}
+
+    # Fallback to shell script (for backward compatibility)
     script_path = os.path.join(BENCH_PATH, "create-tenant.sh")
     if not os.path.isfile(script_path):
         return {"ok": False, "error": "create-tenant.sh not found (mount scripts in compose)"}
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        out_path = f.name
+    r = subprocess.run(
+        ["bash", script_path, site_name, admin_password],
+        cwd=BENCH_PATH,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "DB_PASSWORD": DB_PASSWORD},
+    )
 
-    try:
-        r = subprocess.run(
-            ["bash", script_path, site_name, admin_password, "--output", out_path],
-            cwd=BENCH_PATH,
-            capture_output=True,
-            text=True,
-            env={**os.environ, "DB_PASSWORD": DB_PASSWORD},
-        )
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "").strip()
+        if err:
+            sys.stderr.write(f"[admin-api] create-tenant.sh failed:\n{err}\n")
+        skip = ("[=", "Updating DocTypes", "Updating customizations", "Updating Dashboard", "Installing ")
+        lines = [l for l in err.split("\n") if l.strip() and not any(s in l for s in skip)]
+        concise = "\n".join(lines[-5:]) if lines else "Tenant creation failed. Check admin-api container logs for details."
+        return {"ok": False, "error": concise[:300] if len(concise) > 300 else concise}
 
-        if r.returncode != 0:
-            err = (r.stderr or r.stdout or "").strip()
-            if err:
-                sys.stderr.write(f"[admin-api] create-tenant failed:\n{err}\n")
-            # Never expose verbose progress in API response; cap at 300 chars
-            skip = ("[=", "Updating DocTypes", "Updating customizations", "Updating Dashboard", "Installing ")
-            lines = [l for l in err.split("\n") if l.strip() and not any(s in l for s in skip)]
-            concise = "\n".join(lines[-5:]) if lines else "Tenant creation failed. Check admin-api container logs for details."
-            return {"ok": False, "error": concise[:300] if len(concise) > 300 else concise}
-
-        if not os.path.isfile(out_path):
-            return {"ok": False, "error": "Credentials file not created"}
-        with open(out_path) as f:
-            data = json.load(f)
-        if data.get("ok"):
-            return data
-        return {"ok": False, "error": data.get("error", "Unknown error")}
-    finally:
-        try:
-            os.unlink(out_path)
-        except OSError:
-            pass
+    # Parse JSON from last line of stdout
+    for line in reversed((r.stdout or "").strip().split("\n")):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                data = json.loads(line)
+                if data.get("ok"):
+                    _ensure_port(data, site_name)
+                    return data
+                return {"ok": False, "error": data.get("error", "Unknown error")}
+            except json.JSONDecodeError:
+                continue
+    return {"ok": False, "error": "Could not parse credentials from create-tenant.sh"}
 
 
-def delete_tenant(site_name: str, no_backup: bool = True) -> dict:
-    """Delete a tenant (drop site + database)."""
+def delete_tenant(site_name: str, no_backup: bool = True, remove_frontend: bool = True) -> dict:
+    """Delete a tenant (drop site + database, optionally remove frontend)."""
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$", site_name):
         return {"ok": False, "error": "Invalid site name"}
+
+    # Remove frontend container first (if any)
+    frontend_removed = False
+    if remove_frontend and remove_frontend_for_tenant:
+        fr = remove_frontend_for_tenant(site_name, verbose=False)
+        frontend_removed = fr.get("removed", False)
 
     args = [
         "drop-site",
@@ -150,7 +205,12 @@ def delete_tenant(site_name: str, no_backup: bool = True) -> dict:
     if r.returncode != 0:
         return {"ok": False, "error": r.stderr or r.stdout or "drop-site failed"}
 
-    return {"ok": True, "site_name": site_name, "message": "Tenant deleted"}
+    return {
+        "ok": True,
+        "site_name": site_name,
+        "message": "Tenant deleted",
+        "frontend_removed": frontend_removed,
+    }
 
 
 class AdminAPIHandler(BaseHTTPRequestHandler):
@@ -190,7 +250,14 @@ class AdminAPIHandler(BaseHTTPRequestHandler):
             if not DB_PASSWORD:
                 json_response(self, 500, {"error": "DB_PASSWORD not configured"})
                 return
-            result = create_tenant(site_name, admin_password)
+            port = body.get("port")
+            if port is not None:
+                try:
+                    port = int(port)
+                except (TypeError, ValueError):
+                    port = None
+            create_frontend = bool(body.get("create_frontend", False))
+            result = create_tenant(site_name, admin_password, port=port, create_frontend=create_frontend)
             status = 201 if result.get("ok") else 400
             json_response(self, status, result)
             return
@@ -212,7 +279,8 @@ class AdminAPIHandler(BaseHTTPRequestHandler):
                 return
             qs = parse_qs(parsed.query)
             no_backup = qs.get("no_backup", ["true"])[0].lower() != "false"
-            result = delete_tenant(site_name, no_backup=no_backup)
+            remove_frontend = qs.get("remove_frontend", ["true"])[0].lower() != "false"
+            result = delete_tenant(site_name, no_backup=no_backup, remove_frontend=remove_frontend)
             status = 200 if result.get("ok") else 400
             json_response(self, status, result)
             return

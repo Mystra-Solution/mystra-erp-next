@@ -1,5 +1,72 @@
 name: frappe_docker
 services:
+  admin-api:
+    build:
+      context: /Users/ranujavilhanperera/Desktop/Mystra/frappe_docker
+      dockerfile: images/admin-api/Dockerfile
+      args:
+        BASE_IMAGE: custom:15
+    command:
+      - python3
+      - /home/frappe/frappe-bench/admin_api.py
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+        required: true
+    environment:
+      ADMIN_API_KEY: abc123
+      ADMIN_API_PORT: "9090"
+      DB_PASSWORD: zYjuoUyEdVFrOgbspvpiRadBsSXUwDNP
+      DOCKER_NETWORK: frappe_docker_default
+      DOCKER_SITES_VOLUME: frappe_docker_sites
+      FRAPPE_SITE_NAME_HEADER: erp.kynolabs.dev
+      FRONTEND_IMAGE: custom:15
+      HTTP_PUBLISH_PORT: "8080"
+      TENANT_PORTS: ""
+      TENANT2_HTTP_PORT: "8081"
+      TENANT2_SITE_NAME: tenant2.kynolabs.dev
+      TENANT3_HTTP_PORT: "8082"
+      TENANT3_SITE_NAME: ""
+    image: admin-api:15
+    networks:
+      default: null
+    platform: linux/arm64
+    ports:
+      - mode: ingress
+        target: 9090
+        published: "9090"
+        protocol: tcp
+    pull_policy: never
+    restart: unless-stopped
+    user: "0:0"
+    volumes:
+      - type: volume
+        source: sites
+        target: /home/frappe/frappe-bench/sites
+        volume: {}
+      - type: bind
+        source: /Users/ranujavilhanperera/Desktop/Mystra/frappe_docker/scripts/admin_api.py
+        target: /home/frappe/frappe-bench/admin_api.py
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /Users/ranujavilhanperera/Desktop/Mystra/frappe_docker/scripts/tenant_utils.py
+        target: /home/frappe/frappe-bench/tenant_utils.py
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /Users/ranujavilhanperera/Desktop/Mystra/frappe_docker/scripts/create-tenant.sh
+        target: /home/frappe/frappe-bench/create-tenant.sh
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: true
   backend:
     depends_on:
       configurator:
@@ -8,6 +75,7 @@ services:
     image: custom:15
     networks:
       default: null
+    platform: linux/arm64
     pull_policy: never
     restart: unless-stopped
     volumes:
@@ -41,6 +109,7 @@ services:
     image: custom:15
     networks:
       default: null
+    platform: linux/arm64
     pull_policy: never
     restart: on-failure
     volumes:
@@ -98,6 +167,7 @@ services:
     image: custom:15
     networks:
       default: null
+    platform: linux/arm64
     ports:
       - mode: ingress
         target: 8080
@@ -123,6 +193,7 @@ services:
     image: custom:15
     networks:
       default: null
+    platform: linux/arm64
     pull_policy: never
     restart: unless-stopped
     volumes:
@@ -143,6 +214,7 @@ services:
     image: custom:15
     networks:
       default: null
+    platform: linux/arm64
     pull_policy: never
     restart: unless-stopped
     volumes:
@@ -176,6 +248,7 @@ services:
     image: custom:15
     networks:
       default: null
+    platform: linux/arm64
     pull_policy: never
     restart: unless-stopped
     volumes:
@@ -194,6 +267,7 @@ services:
     image: custom:15
     networks:
       default: null
+    platform: linux/arm64
     pull_policy: never
     restart: unless-stopped
     volumes:
